@@ -1,0 +1,552 @@
+<!doctype html>
+<!--
+  Fase 3 - Nuestra versión minimalista de MultiStream ("Hierarchical Time Series") en D3.js
+
+  Cómo abrirlo (fetch no funciona abriendo el archivo con doble clic):
+    1. En la carpeta del proyecto (MId_datos):  python -m http.server 8000
+    2. Abrir en el navegador:                  http://localhost:8000/d3/
+
+  Qué hace:
+    - Carga output/d3_data.json (Vía 2 de la Fase 2).
+    - Dibuja un streamgraph (áreas apiladas) con los hijos del nodo actual.
+    - Navegación: clic en una capa = bajar a esa rama; clic en la "ruta" = subir.
+    - Clic en nodos del árbol = seleccionarlos para comparar (otro clic los quita).
+    - "Niveles": cuántos niveles por debajo del nodo actual se muestran a la vez.
+    - Granularidad temporal: día / semana / mes. Deslizadores para acotar el periodo.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Wikipedia Attention Streams</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- D3 v7 desde CDN: es la única librería que usamos -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<style>
+  /* ---- Paleta: todos los colores de la página salen de aquí ---- */
+  :root {
+    --page:      #f6f5f1;   /* fondo de la página (blanco cálido) */
+    --surface:   #fcfcfb;   /* fondo de las tarjetas */
+    --ink:       #1d1d1b;   /* texto principal */
+    --ink-2:     #52514e;   /* texto secundario */
+    --muted:     #898781;   /* ejes, etiquetas apagadas */
+    --hairline:  #e1e0d9;   /* bordes y líneas finas */
+    --axis:      #c3c2b7;
+    --accent:    #2a78d6;   /* azul: selección, enlaces */
+    --accent-bg: #e8f1fc;
+    --radius:    12px;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 40px;
+    background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  /* ---- Cabecera ---- */
+  header { margin-bottom: 18px; }
+  .eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 26px; font-weight: 600; margin: 2px 0 4px; letter-spacing: -.01em; }
+  .question { color: var(--ink-2); margin: 0; max-width: 760px; }
+  .stats { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .stat { font-size: 12px; color: var(--ink-2); background: var(--surface);
+          border: 1px solid var(--hairline); border-radius: 999px; padding: 3px 10px; }
+
+  /* ---- Tarjetas ---- */
+  .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius);
+          box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+
+  /* ---- Barra de controles ---- */
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px;
+             flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; }
+  .breadcrumb { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 30px; }
+  .crumb { border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer;
+           padding: 4px 8px; border-radius: 6px; }
+  .crumb:hover { background: var(--accent-bg); }
+  .crumb.current { color: var(--ink); font-weight: 600; cursor: default; background: none; }
+  .sep { color: var(--axis); }
+  .compare { font-weight: 600; margin-right: 6px; }
+  .btn { font: inherit; font-size: 13px; color: var(--ink-2); background: var(--surface);
+         border: 1px solid var(--hairline); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--axis); color: var(--ink); }
+
+  .controls { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  /* Control segmentado = radio buttons nativos con estilo de pestañas */
+  .segmented { display: inline-flex; background: var(--page); border: 1px solid var(--hairline);
+               border-radius: 8px; padding: 2px; }
+  .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+  .segmented label { padding: 4px 11px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
+  .segmented input:checked + label { background: var(--surface); color: var(--ink); font-weight: 600;
+                                     box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .segmented input:focus-visible + label { outline: 2px solid var(--accent); }
+
+  /* ---- Distribución: serie a la izquierda, jerarquía a la derecha ---- */
+  .layout { display: flex; gap: 14px; align-items: flex-start; }
+  .left { flex: 1; min-width: 0; padding: 14px 14px 10px; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 6px; }
+
+  /* Leyenda (las capas visibles) */
+  #legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 4px; font-size: 12px; color: var(--ink-2); }
+  .key { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .key:hover { color: var(--ink); }
+
+  #chart, #overview { display: block; width: 100%; }
+  #overview { margin-top: 6px; border-top: 1px solid var(--hairline); padding-top: 6px; }
+  .timebar { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+             font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .tick text { font-size: 14px; fill: var(--muted); }    /* el viewBox reduce el texto: lo compensamos */
+  .tick line { stroke: var(--axis); }
+  .domain { display: none; }
+
+  /* Deslizadores (brush) */
+  #overview .selection { fill: var(--accent); fill-opacity: .10; stroke: var(--accent); stroke-width: 1; }
+  #overview .handle { fill: var(--ink-2); rx: 3; }
+
+  .layer { cursor: pointer; stroke: var(--surface); stroke-width: 1; }  /* hueco fino entre capas */
+  .layer:hover { opacity: .85; }
+
+  /* ---- Panel del árbol: <details> nativo, clic en <summary> lo minimiza/amplía ---- */
+  #treePanel { flex: 0 0 40%; overflow: hidden; }
+  #treePanel:not([open]) { flex: none; }                /* minimizado: la serie ocupa el resto */
+  #treePanel summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex;
+                       justify-content: space-between; align-items: center; gap: 12px;
+                       font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  #treePanel summary::-webkit-details-marker { display: none; }
+  #treePanel summary::after { content: "–"; font-size: 18px; color: var(--muted); }
+  #treePanel:not([open]) summary::after { content: "+"; }
+  #treePanel .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+  #tree { display: block; width: 100%; font-size: 16px; padding: 0 8px 10px; }
+  #tree .node { cursor: pointer; }
+  #tree .node text { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }  /* halo: legible sobre las líneas */
+  #tree .node:hover text { fill: var(--accent) !important; }
+  #tree .node.focus text, #tree .node.selected text { font-weight: 600; }
+  #tree .node.focus circle { stroke: var(--ink); stroke-width: 2px; }
+  #tree .node.selected circle { r: 8; stroke: var(--ink); stroke-width: 2px; }
+
+  /* ---- Tooltip ---- */
+  #tooltip { position: fixed; pointer-events: none; display: none; background: var(--surface);
+             color: var(--ink); border: 1px solid var(--hairline); border-radius: 8px; padding: 8px 10px;
+             font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.08); min-width: 150px; }
+  #tooltip .t-name { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+  #tooltip .t-name i { width: 10px; height: 10px; border-radius: 3px; }
+  #tooltip .t-val { font-size: 18px; font-weight: 600; margin-top: 2px; }
+  #tooltip .t-sub { color: var(--muted); }
+
+  @media (max-width: 900px) {
+    body { padding: 16px; }
+    .layout { flex-direction: column; }
+    #treePanel { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">MultiStream · Hierarchical Time Series</div>
+  <h1>Atención pública en Wikipedia</h1>
+  <p class="question">¿Qué temas comparten la misma dinámica de atención? La jerarquía se obtuvo por
+     clustering (Ward) de la forma de las series: estacionales, por evento y de tendencia.</p>
+  <div class="stats">
+    <span class="stat">31 artículos</span>
+    <span class="stat">4 niveles de jerarquía</span>
+    <span class="stat">2016 – 2025</span>
+    <span class="stat">Índice de atención 0–100</span>
+  </div>
+</header>
+
+<div class="toolbar card">
+  <!-- Ruta desde la raíz hasta el nodo actual (se rellena con JS) -->
+  <div class="breadcrumb" id="breadcrumb"></div>
+
+  <div class="controls">
+    <div class="control">Granularidad
+      <div class="segmented" id="granularity">
+        <input type="radio" name="gran" id="g-day" value="day"><label for="g-day">Día</label>
+        <input type="radio" name="gran" id="g-week" value="week" checked><label for="g-week">Semana</label>
+        <input type="radio" name="gran" id="g-month" value="month"><label for="g-month">Mes</label>
+      </div>
+    </div>
+    <div class="control">Niveles
+      <div class="segmented" id="levels">
+        <input type="radio" name="lvl" id="l1" value="1" checked><label for="l1">1</label>
+        <input type="radio" name="lvl" id="l2" value="2"><label for="l2">2</label>
+        <input type="radio" name="lvl" id="l3" value="3"><label for="l3">3</label>
+        <input type="radio" name="lvl" id="l4" value="4"><label for="l4">4</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="left card">
+    <div id="legend"></div>
+    <svg id="chart"></svg>
+    <!-- Línea de tiempo de contexto: arrastra las asas para acotar el periodo -->
+    <svg id="overview"></svg>
+    <div class="timebar">
+      <span id="rangeLabel"></span>
+      <button class="btn" id="resetRange">Ver todo el periodo</button>
+    </div>
+  </div>
+
+  <details id="treePanel" class="card" open>
+    <summary><span>Jerarquía <span class="hint">· clic en nodos para comparar</span></span></summary>
+    <svg id="tree"></svg>
+  </details>
+</div>
+<div id="tooltip"></div>
+
+<script>
+// ============================================================================
+// 0. Constantes de dibujo
+// ============================================================================
+const WIDTH = 1000, HEIGHT = 500;                       // tamaño "lógico" del SVG
+const MARGIN = { top: 10, right: 24, bottom: 30, left: 24 };
+
+// Fechas en español (meses y formato de los ejes)
+d3.timeFormatDefaultLocale({
+  dateTime: "%A, %e de %B de %Y, %X", date: "%d/%m/%Y", time: "%H:%M:%S", periods: ["AM", "PM"],
+  days: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"],
+  shortDays: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
+  months: ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+           "septiembre", "octubre", "noviembre", "diciembre"],
+  shortMonths: ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+});
+
+// Colores de las 3 ramas principales (paleta categórica validada para daltonismo)
+const BRANCH_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"];
+// Mismos valores que en :root (CSS) para usarlos desde JS
+const css = getComputedStyle(document.documentElement);
+const C = name => css.getPropertyValue(name).trim();
+
+// viewBox hace que el SVG se escale al ancho disponible (responsive)
+const svg = d3.select("#chart").attr("viewBox", [0, 0, WIDTH, HEIGHT]);
+const plot = svg.append("g");                           // aquí van las capas
+const xAxisG = svg.append("g").attr("transform", `translate(0,${HEIGHT - MARGIN.bottom})`);
+const rule = svg.append("line")                         // línea vertical que sigue al ratón
+  .attr("y1", MARGIN.top).attr("y2", HEIGHT - MARGIN.bottom)
+  .attr("stroke", C("--ink")).attr("stroke-opacity", .5).attr("stroke-dasharray", "3,3")
+  .style("display", "none").style("pointer-events", "none");
+const tooltip = d3.select("#tooltip");
+
+// Estado de la aplicación: TODO lo que se dibuja depende solo de estas cosas
+// range = [fechaInicio, fechaFin] elegido con los deslizadores (null = todo)
+// selected = categorías elegidas en el árbol para comparar (vacío = modo rama/niveles)
+const state = { focus: null, granularity: "week", levels: 1, range: null, selected: new Set() };
+
+let root, dates;                                        // se rellenan al cargar el JSON
+
+// ============================================================================
+// 1. Cargar datos
+//    Formato (Vía 2):  { dates: ["2016-01-01", ...],
+//                        tree: { name, values: [...], children: [ ... ] } }
+//    Cada nodo trae "values" alineados con "dates" (los padres = suma de hijos).
+// ============================================================================
+d3.json("../output/d3_data.json").then(data => {
+  dates = data.dates.map(d3.utcParse("%Y-%m-%d"));     // texto -> objetos Date
+
+  // d3.hierarchy convierte el JSON anidado en nodos con .parent, .children, .depth...
+  root = d3.hierarchy(data.tree);
+
+  // Color: cada rama de primer nivel (g1, g2, g3) tiene un tono; sus descendientes
+  // usan variaciones de ese tono, así se ve a qué grupo pertenece cada capa.
+  root.color = C("--muted");
+  root.children.forEach((branch, b) => {
+    const base = d3.color(BRANCH_COLORS[b % BRANCH_COLORS.length]);
+    const ramp = d3.interpolateLab(base.darker(0.8), d3.interpolateLab(base, "#ffffff")(0.45));  // oscuro -> claro (pastel)
+    branch.color = base.formatHex();
+    // Dentro de la rama, los nodos de un mismo nivel se reparten la rampa,
+    // así dos subgrupos vecinos (g1.1, g1.2) se distinguen.
+    d3.groups(branch.descendants().slice(1), d => d.depth).forEach(([, level]) =>
+      level.forEach((node, k) => { node.color = ramp(level.length > 1 ? k / (level.length - 1) : 0.5); }));
+  });
+
+  state.focus = root;
+
+  // Eventos de los controles segmentados (radio buttons)
+  d3.selectAll("input[name=gran]").on("change", e => { state.granularity = e.target.value; render(); });
+  d3.selectAll("input[name=lvl]").on("change", e => { state.levels = +e.target.value; render(); });
+
+  drawTree();
+  setupOverview();
+  render();
+});
+
+// ============================================================================
+// 2. Granularidad: agrupar los índices de los días en "cubos" (día/semana/mes)
+//    Devuelve [{date, idx: [i, i, ...]}, ...]. Luego el valor de un nodo en un
+//    cubo = media de sus valores diarios en esos días.
+//    (Media y no suma: es un índice de atención, y así los meses con 31 días
+//     no salen "más grandes" que febrero.)
+// ============================================================================
+const intervals = { day: d3.utcDay, week: d3.utcMonday, month: d3.utcMonth };
+const bucketCache = {};
+
+function buckets(granularity) {
+  if (!bucketCache[granularity]) {
+    const floor = intervals[granularity];
+    // d3.groups agrupa los índices 0..N-1 por el inicio de su día/semana/mes
+    bucketCache[granularity] = d3.groups(d3.range(dates.length), i => +floor(dates[i]))
+      .map(([t, idx]) => ({ date: new Date(t), idx }));
+  }
+  return bucketCache[granularity];
+}
+
+// ============================================================================
+// 3. ¿Qué capas se dibujan?
+//    Los nodos que están "levels" niveles por debajo del foco. Si una rama es
+//    más corta (llega antes a las hojas), se usa su hoja: así las ramas de
+//    distinta profundidad funcionan sin casos especiales.
+// ============================================================================
+function visibleNodes(focus, levels) {
+  if (!focus.children) return [focus];                  // el foco es una hoja: solo ella
+  const out = [];
+  (function walk(node, depthLeft) {
+    if (depthLeft === 0 || !node.children) out.push(node);
+    else node.children.forEach(c => walk(c, depthLeft - 1));
+  })(focus, levels);
+  return out;
+}
+
+// ============================================================================
+// 4. Dibujar (se llama cada vez que cambia el estado)
+// ============================================================================
+function render(duration = 600) {
+  // Si hay categorías seleccionadas en el árbol se grafican esas (de cualquier nivel);
+  // si no, las de la rama actual según "Niveles".
+  const nodes = state.selected.size ? [...state.selected] : visibleNodes(state.focus, state.levels);
+  const allBins = buckets(state.granularity);
+
+  // Solo los cubos dentro del periodo elegido con los deslizadores.
+  // (Si el periodo es tan corto que queda < 2 puntos, se muestra todo.)
+  let bins = state.range
+    ? allBins.filter(b => b.date >= state.range[0] && b.date <= state.range[1])
+    : allBins;
+  if (bins.length < 2) bins = allBins;
+
+  // Los nombres son únicos (la Fase 2 lo comprueba), así que sirven de identificador
+  const byName = new Map(nodes.map(n => [n.data.name, n]));
+
+  // 4a. Tabla "ancha" para d3.stack: una fila por cubo de tiempo, una columna por nodo
+  //     [{date, "christmas": 12.3, "halloween": 0.8, ...}, ...]
+  const table = bins.map(b => {
+    const row = { date: b.date };
+    nodes.forEach(n => { row[n.data.name] = d3.mean(b.idx, i => n.data.values[i]); });
+    return row;
+  });
+
+  // 4b. d3.stack calcula, para cada capa, el borde inferior y superior [y0, y1]
+  //     offset "wiggle" + order "insideOut" = el típico streamgraph (centrado y suave)
+  const series = d3.stack()
+    .keys([...byName.keys()])
+    .offset(d3.stackOffsetWiggle)
+    .order(d3.stackOrderInsideOut)(table);
+
+  // 4c. Escalas: tiempo -> píxeles en X; valor apilado -> píxeles en Y
+  const x = d3.scaleUtc()
+    .domain(d3.extent(bins, b => b.date))
+    .range([MARGIN.left, WIDTH - MARGIN.right]);
+  const y = d3.scaleLinear()
+    .domain([d3.min(series, s => d3.min(s, d => d[0])), d3.max(series, s => d3.max(s, d => d[1]))])
+    .range([HEIGHT - MARGIN.bottom, MARGIN.top]);
+
+  // 4d. Generador de áreas: convierte [y0, y1] por fecha en un "path" SVG
+  const area = d3.area()
+    .x(d => x(d.data.date))
+    .y0(d => y(d[0]))
+    .y1(d => y(d[1]))
+    .curve(d3.curveBasis);                               // curvas suaves
+
+  // 4e. Join de datos: una <path> por capa. key = nombre del nodo, así D3
+  //     reutiliza las capas que siguen visibles y anima la transición.
+  plot.selectAll("path.layer")
+    .data(series, s => s.key)
+    .join("path")
+      .attr("class", "layer")
+      .attr("fill", s => byName.get(s.key).color)
+      .on("click", (e, s) => goTo(byName.get(s.key)))  // clic = bajar a esa rama
+      .on("mousemove", (e, s) => showTooltip(e, byName.get(s.key), table, x))
+      .on("mouseleave", hideTooltip)
+    .transition().duration(duration)
+      .attr("d", area);
+
+  // 4f. Eje X (fechas)
+  xAxisG.transition().duration(duration).call(d3.axisBottom(x).ticks(WIDTH / 100).tickSizeOuter(0));
+
+  const fmt = d3.utcFormat("%d %b %Y");
+  d3.select("#rangeLabel").text(`${fmt(bins[0].date)}  →  ${fmt(bins[bins.length - 1].date)}`);
+
+  drawLegend(nodes);
+  updateOverview(allBins);
+  drawBreadcrumb();
+  updateTree(nodes);
+}
+
+// Leyenda: un cuadrito de color + nombre por capa visible (clic = abrir esa rama)
+function drawLegend(nodes) {
+  d3.select("#legend").selectAll("span.key").data(nodes, d => d.data.name)
+    .join(enter => {
+      const k = enter.append("span").attr("class", "key");
+      k.append("i");
+      k.append("span");
+      return k;
+    })
+    .on("click", (e, d) => goTo(d))
+    .call(k => k.select("i").style("background", d => d.color))
+    .call(k => k.select("span").text(d => d.data.name));
+}
+
+// ============================================================================
+// 5. Navegación
+// ============================================================================
+function goTo(node) {
+  // Una hoja no tiene hijos: al hacer clic se muestra sola (su serie individual)
+  state.selected.clear();                               // navegar sale del modo comparación
+  state.focus = node;
+  render();
+}
+
+// Clic en un nodo del árbol: lo añade a la comparación o lo quita si ya estaba
+function toggleSelected(node) {
+  if (state.selected.has(node)) state.selected.delete(node);
+  else state.selected.add(node);
+  render();
+}
+
+// Ruta "wikipedia attention › g1 chatgpt › g1.2 chatgpt"; cada parte es clicable para subir
+function drawBreadcrumb() {
+  const bc = d3.select("#breadcrumb").html("");
+  if (state.selected.size) {                            // modo comparación: no hay "ruta"
+    bc.append("span").attr("class", "compare").text(`Comparando ${state.selected.size} categoría(s)`);
+    bc.append("button").attr("class", "btn").text("Limpiar selección").on("click", () => goTo(state.focus));
+    return;
+  }
+  const path = state.focus.ancestors().reverse();       // de la raíz al foco
+  path.forEach((node, i) => {
+    if (i > 0) bc.append("span").attr("class", "sep").text("›");
+    bc.append("button")
+      .attr("class", node === state.focus ? "crumb current" : "crumb")
+      .text(node.data.name)
+      .on("click", () => goTo(node));
+  });
+}
+
+// Árbol horizontal (raíz a la izquierda, hojas a la derecha) con d3.tree
+const TREE_ROW = 20, TREE_COL = 120;                    // px entre hermanos / entre niveles
+let treeNodes;                                          // selección de los nodos del árbol
+
+function drawTree() {
+  // d3.tree calcula x,y de cada nodo. Lo usamos "girado": x = vertical, y = horizontal.
+  d3.tree().nodeSize([TREE_ROW, TREE_COL])(root);
+
+  // Tamaño del SVG según lo que ocupe el árbol
+  const [x0, x1] = d3.extent(root.descendants(), d => d.x);
+  const pad = 150;                                      // espacio para la etiqueta de la raíz (izq.)
+  const labels = 170;                                   // espacio para los nombres de las hojas (der.)
+  const width = pad + root.height * TREE_COL + labels;
+  d3.select("#tree").attr("viewBox", [-pad, x0 - TREE_ROW, width, x1 - x0 + 2 * TREE_ROW]);
+  const g = d3.select("#tree").append("g");
+
+  // Líneas padre -> hijo (curvas horizontales)
+  g.selectAll("path").data(root.links()).join("path")
+    .attr("fill", "none").attr("stroke", C("--hairline")).attr("stroke-width", 1.5)
+    .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+  // Un grupo <g> por nodo: círculo + texto
+  treeNodes = g.selectAll("g.node").data(root.descendants()).join("g")
+    .attr("class", "node")
+    .attr("transform", d => `translate(${d.y},${d.x})`)
+    .on("click", (e, d) => toggleSelected(d));
+
+  treeNodes.append("circle").attr("r", 5);
+  treeNodes.append("text")
+    .attr("dy", "0.32em")
+    .attr("x", d => d.children ? -9 : 9)                  // grupos: texto a la izquierda; hojas: derecha
+    .attr("text-anchor", d => d.children ? "end" : "start")
+    // Grupos: solo su código ("g3.1") para que el árbol quepa; el nombre completo va en el tooltip
+    .text(d => d.children && d.parent ? d.data.name.split(" ")[0] : d.data.name);
+  treeNodes.append("title").text(d => d.data.name);    // tooltip nativo del navegador
+}
+
+// Resalta en el árbol lo que se ve en el streamgraph:
+// nodos visibles = con su color; foco/seleccionados = borde oscuro; el resto apagado.
+function updateTree(visible) {
+  const shown = new Set(visible);
+  treeNodes.classed("focus", d => !state.selected.size && d === state.focus);
+  treeNodes.classed("selected", d => state.selected.has(d));
+  treeNodes.select("circle")
+    .attr("fill", d => shown.has(d) ? d.color : C("--surface"))
+    .attr("stroke", d => shown.has(d) ? C("--surface") : C("--axis"))
+    .attr("stroke-width", 1.5);
+  treeNodes.select("text").attr("fill", d => shown.has(d) || d === state.focus ? C("--ink") : C("--muted"));
+}
+
+// ============================================================================
+// 6. Línea de tiempo interactiva (overview + brush)
+//    Mini streamgraph del total con un "brush": dos asas para elegir inicio y fin
+//    y una ventana que se puede arrastrar. El gráfico principal muestra solo ese periodo.
+// ============================================================================
+const OV_H = 80;
+const ovSvg = d3.select("#overview").attr("viewBox", [0, 0, WIDTH, OV_H]);
+let ovX, brush, brushG;
+
+function setupOverview() {
+  // Escala fija con TODO el periodo (no cambia al acotar)
+  ovX = d3.scaleUtc().domain(d3.extent(dates)).range([MARGIN.left, WIDTH - MARGIN.right]);
+
+  ovSvg.append("path").attr("class", "ovArea").attr("fill", C("--axis")).attr("fill-opacity", .6);
+  ovSvg.append("g").attr("transform", `translate(0,${OV_H - 22})`)
+    .call(d3.axisBottom(ovX).ticks(WIDTH / 100).tickSizeOuter(0));
+
+  brush = d3.brushX()
+    .extent([[MARGIN.left, 0], [WIDTH - MARGIN.right, OV_H - 22]])
+    .handleSize(8)
+    .on("brush end", ({ selection, sourceEvent }) => {
+      // selection = [pxInicio, pxFin] o null si se borró -> se pasa a fechas
+      state.range = selection ? selection.map(ovX.invert) : null;
+      // mientras se arrastra (sourceEvent existe) se redibuja sin animación para que sea fluido
+      render(sourceEvent ? 0 : 600);
+    });
+  brushG = ovSvg.append("g").call(brush);
+
+  // Botón: quitar la selección = volver a todo el periodo
+  d3.select("#resetRange").on("click", () => brushG.call(brush.move, null));
+}
+
+// El área gris es el total (raíz) en la granularidad actual
+function updateOverview(allBins) {
+  const total = b => d3.mean(b.idx, i => root.data.values[i]);
+  const y = d3.scaleLinear().domain([0, d3.max(allBins, total)]).range([OV_H - 22, 4]);
+  ovSvg.select(".ovArea").datum(allBins).attr("d", d3.area()
+    .x(b => ovX(b.date))
+    .y0(OV_H - 22)
+    .y1(b => y(total(b)))
+    .curve(d3.curveBasis));
+}
+
+// ============================================================================
+// 7. Tooltip: nombre de la capa + valor en la fecha bajo el ratón
+// ============================================================================
+function showTooltip(event, node, table, x) {
+  const [mx] = d3.pointer(event, svg.node());
+  const date = x.invert(mx);
+  // bisector busca la fila más cercana a esa fecha
+  const i = Math.min(d3.bisector(r => r.date).left(table, date), table.length - 1);
+  const row = table[i];
+  rule.style("display", null).attr("x1", x(row.date)).attr("x2", x(row.date));
+  tooltip.style("display", "block")
+    .style("left", event.clientX + 14 + "px").style("top", event.clientY + 14 + "px")
+    .html(`<div class="t-name"><i style="background:${node.color}"></i>${node.data.name}</div>
+           <div class="t-val">${d3.format(".1f")(row[node.data.name])}</div>
+           <div class="t-sub">${d3.utcFormat("%d %b %Y")(row.date)} · ${node.children ? "grupo, clic para abrir" : "artículo"}</div>`);
+}
+
+function hideTooltip() {
+  tooltip.style("display", "none");
+  rule.style("display", "none");
+}
+</script>
+</body>
+</html>

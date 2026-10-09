@@ -1,0 +1,170 @@
+{
+  "ranges": {
+    "name": "wikipedia attention",
+    "children": [
+      {
+        "name": "g1 chatgpt",
+        "children": [
+          {
+            "name": "g1.1 tiktok",
+            "children": [
+              {
+                "name": "tiktok"
+              },
+              {
+                "name": "covid-19"
+              },
+              {
+                "name": "zoom software"
+              },
+              {
+                "name": "face mask"
+              }
+            ]
+          },
+          {
+            "name": "g1.2 chatgpt",
+            "children": [
+              {
+                "name": "wimbledon"
+              },
+              {
+                "name": "chatgpt"
+              },
+              {
+                "name": "artificial intelligence"
+              },
+              {
+                "name": "large language model"
+              },
+              {
+                "name": "nvidia"
+              },
+              {
+                "name": "remote work"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "g2 halloween",
+        "children": [
+          {
+            "name": "g2.1 thanksgiving",
+            "children": [
+              {
+                "name": "christmas"
+              },
+              {
+                "name": "thanksgiving"
+              },
+              {
+                "name": "black friday"
+              }
+            ]
+          },
+          {
+            "name": "g2.2 halloween",
+            "children": [
+              {
+                "name": "halloween"
+              },
+              {
+                "name": "us presidential election"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "g3 fifa world cup",
+        "children": [
+          {
+            "name": "g3.1 fifa world cup",
+            "children": [
+              {
+                "name": "g3.1.1 fifa world cup",
+                "children": [
+                  {
+                    "name": "fifa world cup"
+                  },
+                  {
+                    "name": "tour de france"
+                  }
+                ]
+              },
+              {
+                "name": "nba finals"
+              },
+              {
+                "name": "g3.1.3 bitcoin",
+                "children": [
+                  {
+                    "name": "bitcoin"
+                  },
+                  {
+                    "name": "python language"
+                  },
+                  {
+                    "name": "machine learning"
+                  }
+                ]
+              },
+              {
+                "name": "olympic games"
+              },
+              {
+                "name": "solar eclipse"
+              }
+            ]
+          },
+          {
+            "name": "g3.2 influenza",
+            "children": [
+              {
+                "name": "influenza"
+              },
+              {
+                "name": "common cold"
+              },
+              {
+                "name": "pandemic"
+              }
+            ]
+          },
+          {
+            "name": "g3.3 academy awards",
+            "children": [
+              {
+                "name": "g3.3.1 super bowl",
+                "children": [
+                  {
+                    "name": "valentines day"
+                  },
+                  {
+                    "name": "super bowl"
+                  }
+                ]
+              },
+              {
+                "name": "g3.3.2 academy awards",
+                "children": [
+                  {
+                    "name": "easter"
+                  },
+                  {
+                    "name": "academy awards"
+                  },
+                  {
+                    "name": "february 29"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

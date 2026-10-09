@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+
+# material personal / con copyright (no publicar)
+multistream.pdf
+prompt.md
+preguntas.md
