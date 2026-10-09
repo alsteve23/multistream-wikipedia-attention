@@ -1,5 +1,7 @@
 # Atención pública en Wikipedia: series temporales jerárquicas con MultiStream
 
+**[Ver la visualización en vivo →](https://alsteve23.github.io/multistream-wikipedia-attention/d3/)**
+
 Proyecto del midterm de visualización de datos basado en el paper
 [MultiStream: A Multiresolution Streamgraph Approach to Explore Hierarchical Time Series](https://github.com/erickedu85/multistream)
 (Cuenca et al., IEEE TVCG 2018). El enunciado está en [`enunciado.md`](enunciado.md).
@@ -60,6 +62,8 @@ node preprocessing.js --raw=..\..\output\data.csv --hierarchy=..\..\output\hiera
 ```
 
 ## Visualización en D3
+
+En línea: <https://alsteve23.github.io/multistream-wikipedia-attention/d3/>. En local:
 
 ```powershell
 python -m http.server 8000      # desde la carpeta del proyecto
