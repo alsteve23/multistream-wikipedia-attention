@@ -263,6 +263,11 @@ d3.json("../output/d3_data.json").then(data => {
       level.forEach((node, k) => { node.color = ramp(level.length > 1 ? k / (level.length - 1) : 0.5); }));
   });
 
+  // Posición de cada nodo en el orden de la jerarquía (g1, g1.1, ..., g2, ...):
+  // se usa para apilar siempre en ese orden, como MultiStream.
+  let order = 0;
+  root.eachBefore(node => { node.order = order++; });
+
   state.focus = root;
 
   // Eventos de los controles segmentados (radio buttons)
@@ -316,7 +321,10 @@ function visibleNodes(focus, levels) {
 function render(duration = 600) {
   // Si hay categorías seleccionadas en el árbol se grafican esas (de cualquier nivel);
   // si no, las de la rama actual según "Niveles".
-  const nodes = state.selected.size ? [...state.selected] : visibleNodes(state.focus, state.levels);
+  // (la selección se ordena según la jerarquía, no según el orden de los clics)
+  const nodes = state.selected.size
+    ? [...state.selected].sort((a, b) => a.order - b.order)
+    : visibleNodes(state.focus, state.levels);
   const allBins = buckets(state.granularity);
 
   // Solo los cubos dentro del periodo elegido con los deslizadores.
@@ -338,11 +346,14 @@ function render(duration = 600) {
   });
 
   // 4b. d3.stack calcula, para cada capa, el borde inferior y superior [y0, y1]
-  //     offset "wiggle" + order "insideOut" = el típico streamgraph (centrado y suave)
+  //     Igual que MultiStream:
+  //     - order "reverse": respeta el orden de la jerarquía, con el primer grupo (g1) arriba.
+  //       Así los hermanos quedan juntos y las capas no cambian de sitio al navegar.
+  //     - offset "silhouette": el flujo se centra simétricamente respecto al eje.
   const series = d3.stack()
     .keys([...byName.keys()])
-    .offset(d3.stackOffsetWiggle)
-    .order(d3.stackOrderInsideOut)(table);
+    .offset(d3.stackOffsetSilhouette)
+    .order(d3.stackOrderReverse)(table);
 
   // 4c. Escalas: tiempo -> píxeles en X; valor apilado -> píxeles en Y
   const x = d3.scaleUtc()
