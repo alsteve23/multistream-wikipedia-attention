@@ -116,6 +116,32 @@ def relabel(node, path=""):
 tree = {"name": "wikipedia attention", "children": build(list(range(len(names))), 0)}
 relabel(tree)
 
+# Colores explícitos (preprocessing.js solo inventa colores si el nodo no trae "color").
+# Su escala automática va desde el blanco, así que en ramas con muchas hojas las últimas
+# salen casi blancas e invisibles. Usamos los mismos tonos que la versión D3:
+# un color por rama y, dentro de ella, cada nivel reparte una rampa oscuro -> pastel.
+BRANCH_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
+
+
+def mix(rgb, target, t):
+    return tuple(a + (b - a) * t for a, b in zip(rgb, target))
+
+
+def hexcolor(rgb):
+    return "#" + "".join(f"{round(c):02x}" for c in rgb)
+
+
+for b, branch in enumerate(tree["children"]):
+    base = tuple(int(BRANCH_COLORS[b % 3][i:i + 2], 16) for i in (1, 3, 5))
+    dark, light = tuple(c * 0.7 ** 0.8 for c in base), mix(base, (255, 255, 255), 0.45)
+    branch["color"] = hexcolor(base)
+    level = branch.get("children", [])
+    while level:                                     # recorrido por niveles dentro de la rama
+        for k, node in enumerate(level):
+            t = k / (len(level) - 1) if len(level) > 1 else 0.5
+            node["color"] = hexcolor(mix(dark, light, t))
+        level = [c for n in level for c in n.get("children", [])]
+
 # ------------------------------------------------------------ 3. Vía 1
 weekly.round(2).rename_axis("date").to_csv(OUT / "data.csv", date_format="%Y-%m-%d")
 (OUT / "hierarchy.json").write_text(json.dumps({"ranges": tree}, indent=2), encoding="utf-8")
